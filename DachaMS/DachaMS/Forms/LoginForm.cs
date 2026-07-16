@@ -1,0 +1,711 @@
+using System;
+using System.Data.SqlClient;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+using DachaMS.DB;
+using DachaMS.Models;
+
+namespace DachaMS
+{
+    public partial class LoginForm : Form
+    {
+        private const int SidebarWidth = 320;
+        private const int CardWidth = 380;
+        private const int CardPadding = 32;
+
+        private const int MinLoginLength = 4;
+        private const int MinPasswordLength = 6;
+
+        private static readonly Regex FullNameRegex =
+            new Regex(@"^[А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?(\s[А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?){1,2}$");
+
+        private static readonly Regex LoginRegex =
+            new Regex(@"^[A-Za-z][A-Za-z0-9]*$");
+
+        private static readonly Regex PasswordLetterRegex = new Regex(@"[A-Za-zА-Яа-яЁё]");
+        private static readonly Regex PasswordDigitRegex = new Regex(@"\d");
+        private static readonly Regex PasswordSpecialRegex = new Regex(@"[!@#$%^&*()_+\-=\[\]{};':""\\|,.<>\/?]");
+
+        private Panel sidebarPanel;
+        private Panel rightPanel;
+        private Panel cardShadowPanel;
+        private Panel cardPanel;
+        private Panel loginViewPanel;
+        private Panel registerViewPanel;
+        private Panel logoBadgePanel;
+
+        private Label lblLoginUsername;
+        private TextBox txtLoginUsername;
+        private Label lblLoginPassword;
+        private TextBox txtLoginPassword;
+        private Button btnLogin;
+        private Button btnGoRegister;
+        private Button btnExitApp;
+        private Label lblLoginError;
+
+        private Label lblRegFullName;
+        private TextBox txtRegFullName;
+        private Label lblRegUsername;
+        private TextBox txtRegUsername;
+        private Label lblRegPassword;
+        private TextBox txtRegPassword;
+        private Label lblRegPassword2;
+        private TextBox txtRegPassword2;
+        private Button btnRegister;
+        private Button btnGoLogin;
+        private Label lblRegMessage;
+
+        public LoginForm()
+        {
+            InitializeComponent();
+            AppBranding.ApplyFormIcon(this);
+            BuildSidebar();
+            BuildRightArea();
+            BuildLoginView();
+            BuildRegisterView();
+            ShowLoginView();
+            this.Load += (s, e) => UpdateLayout();
+            this.Resize += (s, e) => UpdateLayout();
+        }
+
+        private void InitializeComponent()
+        {
+            this.sidebarPanel = new Panel();
+            this.rightPanel = new Panel();
+            this.cardShadowPanel = new Panel();
+            this.cardPanel = new Panel();
+            this.loginViewPanel = new Panel();
+            this.registerViewPanel = new Panel();
+
+            this.SuspendLayout();
+
+            this.sidebarPanel.Dock = DockStyle.Left;
+            this.sidebarPanel.Width = SidebarWidth;
+            this.sidebarPanel.BackColor = AppBranding.SidebarColor;
+
+            this.rightPanel.Dock = DockStyle.Fill;
+            this.rightPanel.BackColor = AppBranding.ContentBackgroundColor;
+
+            this.cardShadowPanel.BackColor = Color.FromArgb(210, 215, 220);
+            this.cardShadowPanel.Size = new Size(CardWidth, 480);
+
+            this.cardPanel.BackColor = AppBranding.ContentBackgroundColor;
+            this.cardPanel.Size = new Size(CardWidth, 480);
+
+            this.loginViewPanel.Dock = DockStyle.Fill;
+            this.loginViewPanel.BackColor = AppBranding.ContentBackgroundColor;
+
+            this.registerViewPanel.Dock = DockStyle.Fill;
+            this.registerViewPanel.BackColor = AppBranding.ContentBackgroundColor;
+            this.registerViewPanel.AutoScroll = true;
+            this.registerViewPanel.Visible = false;
+
+            this.cardPanel.Controls.Add(loginViewPanel);
+            this.cardPanel.Controls.Add(registerViewPanel);
+            this.rightPanel.Controls.Add(cardShadowPanel);
+            this.rightPanel.Controls.Add(cardPanel);
+            this.Controls.Add(rightPanel);
+            this.Controls.Add(sidebarPanel);
+
+            this.Text = AppBranding.AppName + " — вход";
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.WindowState = FormWindowState.Maximized;
+            this.Font = new Font("Segoe UI", 9.5f);
+
+            this.ResumeLayout(false);
+        }
+
+        private void BuildSidebar()
+        {
+            var lblTitle = new Label
+            {
+                Text = AppBranding.AppName.ToUpper(),
+                Font = new Font("Segoe UI", 26f, FontStyle.Bold),
+                ForeColor = Color.White,
+                AutoSize = false,
+                Size = new Size(SidebarWidth - 48, 44),
+                Location = new Point(32, 48)
+            };
+
+            var lblSubtitle = new Label
+            {
+                Text = AppBranding.AppSubtitle,
+                Font = new Font("Segoe UI", 11f),
+                ForeColor = Color.FromArgb(200, 200, 205),
+                AutoSize = false,
+                Size = new Size(SidebarWidth - 48, 48),
+                Location = new Point(32, 96)
+            };
+
+            string[] features =
+            {
+                "учёт участков и построек",
+                "рейтинг и ценообразование",
+                "управление владельцами"
+            };
+
+            int featureY = 170;
+            foreach (string feature in features)
+            {
+                var lblFeature = new Label
+                {
+                    Text = "•  " + feature,
+                    Font = new Font("Segoe UI", 10.5f),
+                    ForeColor = Color.FromArgb(220, 220, 225),
+                    AutoSize = false,
+                    Size = new Size(SidebarWidth - 48, 28),
+                    Location = new Point(32, featureY)
+                };
+                sidebarPanel.Controls.Add(lblFeature);
+                featureY += 30;
+            }
+
+            sidebarPanel.Controls.Add(lblTitle);
+            sidebarPanel.Controls.Add(lblSubtitle);
+        }
+
+        private void BuildRightArea()
+        {
+            logoBadgePanel = new Panel
+            {
+                Size = new Size(72, 72),
+                BackColor = Color.Transparent
+            };
+            logoBadgePanel.Paint += LogoBadgePanel_Paint;
+
+            var lblLogoEmoji = new Label
+            {
+                Text = AppBranding.AppEmoji,
+                Font = new Font("Segoe UI Emoji", 28f),
+                AutoSize = false,
+                Size = new Size(72, 72),
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent
+            };
+            logoBadgePanel.Controls.Add(lblLogoEmoji);
+            rightPanel.Controls.Add(logoBadgePanel);
+        }
+
+        private void LogoBadgePanel_Paint(object sender, PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var pen = new Pen(AppBranding.SidebarColor, 2f))
+            {
+                e.Graphics.DrawEllipse(pen, 2, 2, logoBadgePanel.Width - 5, logoBadgePanel.Height - 5);
+            }
+        }
+
+        private void UpdateLayout()
+        {
+            if (rightPanel.Width <= 0 || rightPanel.Height <= 0)
+                return;
+
+            int cardX = Math.Max(24, (rightPanel.Width - CardWidth) / 2);
+            int cardY = Math.Max(60, (rightPanel.Height - cardPanel.Height) / 2);
+
+            cardShadowPanel.Size = cardPanel.Size;
+            cardShadowPanel.Location = new Point(cardX + 4, cardY + 4);
+            cardPanel.Location = new Point(cardX, cardY);
+            cardPanel.BringToFront();
+
+            logoBadgePanel.Location = new Point(
+                rightPanel.Width - logoBadgePanel.Width - 36,
+                28);
+        }
+
+        private void BuildLoginView()
+        {
+            loginViewPanel.BackColor = Color.FromArgb(240, 242, 245);
+            int y = CardPadding;
+            int fieldWidth = CardWidth - CardPadding * 2;
+
+            var lblTitle = CreateCardTitle("Авторизация", y);
+            loginViewPanel.Controls.Add(lblTitle);
+            y += 38;
+
+            var lblDesc = CreateCardDescription(
+                "Войдите для работы с базой данных дачного массива.",
+                y,
+                fieldWidth);
+            loginViewPanel.Controls.Add(lblDesc);
+            y += 44;
+
+            lblLoginUsername = CreateFieldLabel("Логин", y);
+            loginViewPanel.Controls.Add(lblLoginUsername);
+            y += 22;
+
+            txtLoginUsername = CreateTextBox(y, fieldWidth);
+            loginViewPanel.Controls.Add(txtLoginUsername);
+            y += 36;
+
+            lblLoginPassword = CreateFieldLabel("Пароль", y);
+            loginViewPanel.Controls.Add(lblLoginPassword);
+            y += 22;
+
+            txtLoginPassword = CreateTextBox(y, fieldWidth);
+            txtLoginPassword.UseSystemPasswordChar = true;
+            loginViewPanel.Controls.Add(txtLoginPassword);
+            y += 44;
+
+            btnLogin = CreatePrimaryButton("Войти", y, fieldWidth);
+            btnLogin.Click += BtnLogin_Click;
+            loginViewPanel.Controls.Add(btnLogin);
+            y += 44;
+
+            btnGoRegister = CreatePrimaryButton("Регистрация", y, fieldWidth);
+            btnGoRegister.Click += (s, e) => ShowRegisterView();
+            loginViewPanel.Controls.Add(btnGoRegister);
+            y += 44;
+
+            btnExitApp = new Button
+            {
+                Text = "Выйти из программы",
+                Location = new Point(CardPadding, y),
+                Size = new Size(fieldWidth, 36),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.Transparent,
+                ForeColor = AppBranding.ErrorColor,
+                Cursor = Cursors.Hand
+            };
+            btnExitApp.FlatAppearance.BorderColor = AppBranding.ErrorColor;
+            btnExitApp.Click += (s, e) =>
+            {
+                if (MessageBox.Show(
+                    "Вы уверены, что хотите выйти из программы?",
+                    "Подтверждение выхода",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question) == DialogResult.Yes)
+                {
+                    Application.Exit();
+                }
+            };
+            loginViewPanel.Controls.Add(btnExitApp);
+            y += 44;
+
+            lblLoginError = new Label
+            {
+                Text = "",
+                Location = new Point(CardPadding, y),
+                Size = new Size(fieldWidth, 36),
+                ForeColor = AppBranding.ErrorColor,
+                AutoSize = false
+            };
+            loginViewPanel.Controls.Add(lblLoginError);
+
+            txtLoginPassword.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) BtnLogin_Click(null, null); };
+            txtLoginUsername.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) txtLoginPassword.Focus(); };
+        }
+
+        private void BuildRegisterView()
+        {
+            int y = CardPadding;
+            int fieldWidth = CardWidth - CardPadding * 2;
+
+            var lblTitle = CreateCardTitle("Регистрация", y);
+            registerViewPanel.Controls.Add(lblTitle);
+            y += 38;
+
+            var lblDesc = CreateCardDescription(
+                "Создайте учётную запись для доступа к системе.",
+                y,
+                fieldWidth);
+            registerViewPanel.Controls.Add(lblDesc);
+            y += 40;
+
+            lblRegFullName = CreateFieldLabel("ФИО", y);
+            registerViewPanel.Controls.Add(lblRegFullName);
+            y += 22;
+
+            txtRegFullName = CreateTextBox(y, fieldWidth);
+            registerViewPanel.Controls.Add(txtRegFullName);
+            y += 32;
+
+            lblRegUsername = CreateFieldLabel("Логин", y);
+            registerViewPanel.Controls.Add(lblRegUsername);
+            y += 22;
+
+            txtRegUsername = CreateTextBox(y, fieldWidth);
+            registerViewPanel.Controls.Add(txtRegUsername);
+            y += 32;
+
+            lblRegPassword = CreateFieldLabel("Пароль", y);
+            registerViewPanel.Controls.Add(lblRegPassword);
+            y += 22;
+
+            txtRegPassword = CreateTextBox(y, fieldWidth);
+            txtRegPassword.UseSystemPasswordChar = true;
+            registerViewPanel.Controls.Add(txtRegPassword);
+            y += 32;
+
+            lblRegPassword2 = CreateFieldLabel("Повторите пароль", y);
+            registerViewPanel.Controls.Add(lblRegPassword2);
+            y += 22;
+
+            txtRegPassword2 = CreateTextBox(y, fieldWidth);
+            txtRegPassword2.UseSystemPasswordChar = true;
+            registerViewPanel.Controls.Add(txtRegPassword2);
+            y += 36;
+
+            btnRegister = CreatePrimaryButton("Зарегистрироваться", y, fieldWidth);
+            btnRegister.Click += BtnRegister_Click;
+            registerViewPanel.Controls.Add(btnRegister);
+            y += 44;
+
+            btnGoLogin = CreatePrimaryButton("Назад к входу", y, fieldWidth);
+            btnGoLogin.Click += (s, e) => ShowLoginView();
+            registerViewPanel.Controls.Add(btnGoLogin);
+            y += 44;
+
+            lblRegMessage = new Label
+            {
+                Text = "",
+                Location = new Point(CardPadding, y),
+                Size = new Size(fieldWidth, 40),
+                AutoSize = false
+            };
+            registerViewPanel.Controls.Add(lblRegMessage);
+
+            txtRegPassword2.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) BtnRegister_Click(null, null); };
+            txtRegPassword.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) txtRegPassword2.Focus(); };
+            txtRegUsername.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) txtRegPassword.Focus(); };
+            txtRegFullName.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) txtRegUsername.Focus(); };
+        }
+
+        private static Label CreateCardTitle(string text, int y)
+        {
+            return new Label
+            {
+                Text = text,
+                Font = new Font("Segoe UI", 16f, FontStyle.Bold),
+                ForeColor = AppBranding.SidebarColor,
+                AutoSize = false,
+                Size = new Size(CardWidth - CardPadding * 2, 30),
+                Location = new Point(CardPadding, y)
+            };
+        }
+
+        private static Label CreateCardDescription(string text, int y, int width)
+        {
+            return new Label
+            {
+                Text = text,
+                Font = new Font("Segoe UI", 9.5f),
+                ForeColor = AppBranding.MutedTextColor,
+                AutoSize = false,
+                Size = new Size(width, 36),
+                Location = new Point(CardPadding, y)
+            };
+        }
+
+        private static Label CreateFieldLabel(string text, int y)
+        {
+            return new Label
+            {
+                Text = text,
+                Font = new Font("Segoe UI", 9.5f),
+                ForeColor = AppBranding.SidebarColor,
+                AutoSize = true,
+                Location = new Point(CardPadding, y)
+            };
+        }
+
+        private static TextBox CreateTextBox(int y, int width)
+        {
+            return new TextBox
+            {
+                Location = new Point(CardPadding, y),
+                Width = width,
+                Height = 28,
+                Font = new Font("Segoe UI", 10f),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+        }
+
+        private static Button CreatePrimaryButton(string text, int y, int width)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                Location = new Point(CardPadding, y),
+                Width = width,
+                Height = 36,
+                BackColor = AppBranding.SidebarColor,
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 10f, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btn.FlatAppearance.BorderSize = 0;
+            return btn;
+        }
+
+        public void ResetAndShow()
+        {
+            ShowLoginView();
+            this.Show();
+        }
+
+        private void ShowLoginView()
+        {
+            loginViewPanel.Visible = true;
+            registerViewPanel.Visible = false;
+            lblLoginError.Text = "";
+            txtLoginUsername.Text = "";
+            txtLoginPassword.Text = "";
+            cardPanel.Height = 420;
+            UpdateLayout();
+            txtLoginUsername.Focus();
+        }
+
+        private void ShowRegisterView()
+        {
+            loginViewPanel.Visible = false;
+            registerViewPanel.Visible = true;
+            SetRegisterMessage("", false);
+            cardPanel.Height = 500;
+            UpdateLayout();
+            txtRegFullName.Focus();
+        }
+
+        private void SetRegisterMessage(string text, bool isError)
+        {
+            lblRegMessage.Text = text;
+            lblRegMessage.ForeColor = isError
+                ? AppBranding.ErrorColor
+                : AppBranding.SuccessColor;
+            lblRegMessage.BringToFront();
+        }
+
+        private static void ShowValidationError(string message)
+        {
+            MessageBox.Show(message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+
+        private static bool ValidateFullName(string fullName, out string error)
+        {
+            error = null;
+            if (string.IsNullOrWhiteSpace(fullName))
+            {
+                error = "Поле «ФИО» не заполнено.";
+                return false;
+            }
+            if (!FullNameRegex.IsMatch(fullName))
+            {
+                error = "ФИО должно быть указано на кириллице в формате «Фамилия Имя» " +
+                        "или «Фамилия Имя Отчество», каждое слово — с заглавной буквы, " +
+                        "без цифр, латинских символов и спецсимволов (кроме дефиса).";
+                return false;
+            }
+            return true;
+        }
+
+        private static bool ValidateLogin(string login, out string error)
+        {
+            error = null;
+            if (string.IsNullOrWhiteSpace(login))
+            {
+                error = "Поле «Логин» не заполнено.";
+                return false;
+            }
+            if (login.Length < MinLoginLength)
+            {
+                error = $"Логин должен содержать не менее {MinLoginLength} символов.";
+                return false;
+            }
+            if (!LoginRegex.IsMatch(login))
+            {
+                error = "Логин может содержать только латинские буквы и цифры, " +
+                        "без пробелов и спецсимволов, и должен начинаться с буквы.";
+                return false;
+            }
+            return true;
+        }
+
+        private static bool ValidatePassword(string password, out string error)
+        {
+            error = null;
+            if (string.IsNullOrEmpty(password))
+            {
+                error = "Поле «Пароль» не заполнено.";
+                return false;
+            }
+            if (password.Contains(" "))
+            {
+                error = "Пароль не должен содержать пробелы.";
+                return false;
+            }
+            if (password.Length < MinPasswordLength)
+            {
+                error = $"Пароль должен содержать не менее {MinPasswordLength} символов.";
+                return false;
+            }
+            if (!PasswordLetterRegex.IsMatch(password))
+            {
+                error = "Пароль должен содержать хотя бы одну букву.";
+                return false;
+            }
+            if (!PasswordDigitRegex.IsMatch(password))
+            {
+                error = "Пароль должен содержать хотя бы одну цифру.";
+                return false;
+            }
+            if (!PasswordSpecialRegex.IsMatch(password))
+            {
+                error = "Пароль должен содержать хотя бы один спецсимвол (например: !@#$%^&*).";
+                return false;
+            }
+            return true;
+        }
+
+        private void BtnLogin_Click(object sender, EventArgs e)
+        {
+            lblLoginError.Text = "";
+            string username = txtLoginUsername.Text.Trim();
+            string password = txtLoginPassword.Text;
+
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            {
+                ShowValidationError("Введите логин и пароль.");
+                return;
+            }
+
+            try
+            {
+                using (var conn = Database.GetConnection())
+                {
+                    conn.Open();
+                    string query = "SELECT [user_id], [full_name], [role], [password_hash] FROM [DachaMS].[dbo].[users] WHERE [login] = @u";
+
+                    using (var cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@u", username);
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            if (!reader.Read())
+                            {
+                                ShowValidationError("Неверный логин или пароль.");
+                                return;
+                            }
+
+                            string storedPassword = reader["password_hash"].ToString().Trim();
+                            if (storedPassword != password)
+                            {
+                                ShowValidationError("Неверный логин или пароль.");
+                                return;
+                            }
+
+                            Session.UserId = (int)reader["user_id"];
+                            Session.FullName = reader["full_name"].ToString();
+                            Session.Role = reader["role"].ToString();
+                            Session.Login = username;
+                        }
+                    }
+                }
+
+                var main = new MainForm(this);
+                main.Show();
+                this.Hide();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex.ToString());
+                ShowValidationError("Ошибка подключения к базе данных: " + ex.Message);
+            }
+        }
+
+        private void BtnRegister_Click(object sender, EventArgs e)
+        {
+            SetRegisterMessage("", false);
+
+            string fullName = txtRegFullName.Text.Trim();
+            string username = txtRegUsername.Text.Trim();
+            string password = txtRegPassword.Text;
+            string password2 = txtRegPassword2.Text;
+
+            string error;
+
+            if (!ValidateFullName(fullName, out error))
+            {
+                ShowValidationError(error);
+                txtRegFullName.Focus();
+                return;
+            }
+
+            if (!ValidateLogin(username, out error))
+            {
+                ShowValidationError(error);
+                txtRegUsername.Focus();
+                return;
+            }
+
+            if (!ValidatePassword(password, out error))
+            {
+                ShowValidationError(error);
+                txtRegPassword.Focus();
+                return;
+            }
+
+            if (password != password2)
+            {
+                ShowValidationError("Пароли не совпадают.");
+                txtRegPassword2.Focus();
+                return;
+            }
+
+            btnRegister.Enabled = false;
+            try
+            {
+                using (var conn = Database.GetConnection())
+                {
+                    conn.Open();
+
+                    string checkQuery = "SELECT COUNT(*) FROM [DachaMS].[dbo].[users] WHERE [login] = @u";
+                    using (var cmd = new SqlCommand(checkQuery, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@u", username);
+                        int count = Convert.ToInt32(cmd.ExecuteScalar());
+                        if (count > 0)
+                        {
+                            ShowValidationError("Этот логин уже занят.");
+                            txtRegUsername.Focus();
+                            return;
+                        }
+                    }
+
+                    string insertQuery = @"
+                        INSERT INTO [DachaMS].[dbo].[users] (login, password_hash, full_name, role)
+                        VALUES (@u, @p, @fn, 'viewer')";
+                    using (var cmd = new SqlCommand(insertQuery, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@u", username);
+                        cmd.Parameters.AddWithValue("@fn", fullName);
+                        cmd.Parameters.AddWithValue("@p", password);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                SetRegisterMessage("Регистрация успешна! Войдите.", false);
+
+                txtRegFullName.Clear();
+                txtRegUsername.Clear();
+                txtRegPassword.Clear();
+                txtRegPassword2.Clear();
+
+                ShowLoginView();
+                txtLoginUsername.Text = username;
+                txtLoginPassword.Focus();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex.ToString());
+                ShowValidationError("Ошибка: " + ex.Message);
+            }
+            finally
+            {
+                btnRegister.Enabled = true;
+            }
+        }
+    }
+}
